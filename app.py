@@ -88,15 +88,16 @@ if st.button("🚀 분석 및 보험료 예측 시작", use_container_width=True
         is_smoker = int(smoker_val == "yes")
         obese_smoker = is_obese * is_smoker
 
+       # 기존 코드를 아래처럼 dtype을 명시하도록 수정
         input_df = pd.DataFrame({
-            "age": [age],
+            "age": [float(age)], # 숫자는 모두 실수형(float)으로 강제 변환
             "sex": [sex_val],
-            "bmi": [bmi],
-            "children": [children],
+            "bmi": [float(bmi)],
+            "children": [float(children)],
             "smoker": [smoker_val],
-            "is_obese": [is_obese],
-            "is_smoker": [is_smoker],
-            "obese_smoker": [obese_smoker]
+            "is_obese": [float(is_obese)],
+            "is_smoker": [float(is_smoker)],
+            "obese_smoker": [float(obese_smoker)]
         })
 
         # 예측 (log -> 원래값)
