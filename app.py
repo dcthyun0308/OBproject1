@@ -2,81 +2,119 @@ import streamlit as st
 import numpy as np
 import pandas as pd
 import joblib
-import time
 
-# 1. 환경 패치 (구버전 모델 호환용)
-@st.cache_resource
-def load_model():
-    try:
-        import sklearn
-        from sklearn.impute import SimpleImputer
-        if not hasattr(SimpleImputer, "_fill_dtype"):
-            SimpleImputer._fill_dtype = property(lambda self: np.float64)
-        return joblib.load("model.pkl")
-    except:
-        return None
+# 모델 불러오기
+model = joblib.load("model.pkl")
 
-model = load_model()
+st.title("💰 보험료 예측 서비스")
+st.info("📱 QR코드를 스캔해서 직접 입력해보세요!")
 
-# 2. 페이지 디자인
-st.set_page_config(page_title="AI 보험료 예측 서비스", page_icon="💰")
+st.write("아래 정보를 입력하면 예상 보험료를 알려드립니다.")
 
-with st.sidebar:
-    st.header("📋 정보 입력")
-    age = st.number_input("나이", 18, 100, 25)
-    sex = st.radio("성별", ["여성", "남성"], horizontal=True)
-    st.divider()
-    height = st.number_input("키 (cm)", 100.0, 220.0, 170.0)
-    weight = st.number_input("몸무게 (kg)", 30.0, 200.0, 65.0)
-    st.divider()
-    children = st.select_slider("자녀 수", options=[0, 1, 2, 3, 4, 5], value=0)
-    smoker = st.radio("흡연 여부", ["아니오", "예"], horizontal=True)
+# -------------------------
+# 입력 UI (한국어)
+# -------------------------
 
-st.title("💰 AI 보험료 예측 서비스")
-st.info("📱 QR코드로 접속하신 것을 환영합니다!")
+age = st.number_input(
+    "나이",
+    min_value=18,
+    max_value=100,
+    value=None,
+    step=1
+)
 
-# 3. 예측 실행 (에러 근본 원인 해결)
-if st.button("🚀 분석 및 결과 확인", use_container_width=True):
-    if model:
-        with st.spinner('AI 분석 중...'):
-            time.sleep(1)
-            
-            # BMI 계산
-            bmi = weight / ((height/100) ** 2)
-            
-            # [🔥 에러 해결 핵심] 
-            # 모델이 'male'이라는 글자를 못 읽으므로, 무조건 숫자로 바꿔서 보냅니다.
-            s_num = 1.0 if sex == "남성" else 0.0
-            sm_num = 1.0 if smoker == "예" else 0.0
-            is_obese = 1.0 if bmi >= 30 else 0.0
-            
-            # 데이터를 모델이 원하는 '숫자' 형태로만 구성
-            input_df = pd.DataFrame({
-                "age": [float(age)],
-                "sex": [s_num],        # 여기에 절대 'male'이라는 글자가 들어가면 안 됩니다!
-                "bmi": [float(bmi)],
-                "children": [float(children)],
-                "smoker": [sm_num],     # 여기에 절대 'yes'라는 글자가 들어가면 안 됩니다!
-                "is_obese": [is_obese],
-                "is_smoker": [sm_num],
-                "obese_smoker": [float(is_obese * sm_num)]
-            })
+sex = st.radio("성별", ["여성","남성"])
 
-            try:
-                # 예측 및 결과 출력
-                pred = np.expm1(model.predict(input_df)[0])
-                krw = pred * 1500
-                
-                st.divider()
-                st.subheader(f"💵 예상 보험료: ${pred:,.0f} (약 {krw:,.0f}원)")
-                
-                if pred < 10000:
-                    st.success("🟢 의료비 등급: 낮음")
-                    st.balloons()
-                elif pred < 20000:
-                    st.warning("🟡 의료비 등급: 보통")
-                else:
-                    st.error("🔴 의료비 등급: 높음")
-            except Exception as e:
-                # 만약 또 에러가 나면, 팀원이 글자를 원할 수도 있으니 대비책 출력
-                st.error(f"계산 중 오류 발생: {e}")
+height = st.number_input(
+    "키 (cm)",
+    min_value=100.0,
+    max_value=220.0,
+    value=None,
+    step=1.0,
+    format="%.1f"
+)
+
+weight = st.number_input(
+    "몸무게 (kg)",
+    min_value=30.0,
+    max_value=200.0,
+    value=None,
+    step=1.0,
+    format="%.1f"
+)
+children = st.slider("자녀 수", 0, 5, 0)
+
+smoker = st.radio("흡연 여부", ["아니오","예"])
+
+# -------------------------
+# 퍼센타일 기준 (고정값)
+# -------------------------
+q50 = 9382.033
+q80 = 20260.626406
+
+# -------------------------
+# 버튼
+# -------------------------
+
+if st.button("보험료 예측하기"):
+
+    # BMI 계산
+    height_m = height / 100
+    bmi = weight / (height_m ** 2)
+
+    # 모델 입력값 맞추기
+    sex_val = "male" if sex == "남성" else "female"
+    smoker_val = "yes" if smoker == "예" else "no"
+
+    is_obese = int(bmi >= 30)
+    is_smoker = int(smoker_val == "yes")
+    obese_smoker = is_obese * is_smoker
+
+    input_df = pd.DataFrame({
+        "age": [age],
+        "sex": [sex_val],
+        "bmi": [bmi],
+        "children": [children],
+        "smoker": [smoker_val],
+        "is_obese": [is_obese],
+        "is_smoker": [is_smoker],
+        "obese_smoker": [obese_smoker]
+    })
+
+    # 예측 (log -> 원래값)
+    pred_log = model.predict(input_df)[0]
+    pred = np.expm1(pred_log)
+
+    # -------------------------
+    # 등급 (퍼센타일 기준)
+    # -------------------------
+    if pred < q50:
+        grade = "🟢 낮음"
+        desc = "의료비 지출이 적은 그룹입니다"
+    elif pred < q80:
+        grade = "🟡 보통"
+        desc = "평균적인 의료비 지출 그룹입니다."
+    else:
+        grade = "🔴 높음"
+        desc = "상대적으로 높은 의료비 지출 그룹입니다."
+
+    # -------------------------
+    # 퍼센타일 위치 계산 (근사)
+    # -------------------------
+    if pred < q50:
+        percentile = (pred / q50) * 50
+    elif pred < q80:
+        percentile = 50 + (pred - q50) / (q80 - q50) * 30
+    else:
+        percentile = 80 + (pred - q80) / q80 * 20
+        percentile = min(percentile, 99.9)
+
+    krw = pred * 1500
+
+    # -------------------------
+    # 결과 출력
+    # -------------------------
+    st.subheader(f"💰 예상 연간 미국 의료비: ${pred:,.0f} (약 ₩{krw:,.0f})")
+    st.subheader(f"🏆 의료비 수준 등급: {grade}")
+    st.write(desc)
+    st.write(f"📊 전체 사용자 중 약 상위 {100 - percentile:.1f}% 수준입니다.")
