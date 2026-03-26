@@ -2,8 +2,16 @@ import streamlit as st
 import numpy as np
 import pandas as pd
 import joblib
+import sklearn
+from sklearn.impute import SimpleImputer
 
-# 모델 불러오기
+# --- [B의 긴급 수술 코드] ---
+# 구버전 모델이 최신 sklearn 환경에서 돌아가도록 속성을 강제로 주입합니다.
+if not hasattr(SimpleImputer, "_fill_dtype"):
+    SimpleImputer._fill_dtype = lambda self, X: X.dtype
+# -------------------------
+
+# 그 다음에 모델을 불러옵니다.
 model = joblib.load("model.pkl")
 
 st.title("💰 보험료 예측 서비스")
