@@ -58,6 +58,11 @@ q80 = 20260.626406
 
 if st.button("보험료 예측하기"):
 
+    # 🔥 None 입력 방지 (추가)
+    if None in [age, height, weight]:
+        st.warning("모든 값을 입력해주세요!")
+        st.stop()
+
     # BMI 계산
     height_m = height / 100
     bmi = weight / (height_m ** 2)
@@ -66,6 +71,7 @@ if st.button("보험료 예측하기"):
     sex_val = "male" if sex == "남성" else "female"
     smoker_val = "yes" if smoker == "예" else "no"
 
+    # 파생변수 (유지)
     is_obese = int(bmi >= 30)
     is_smoker = int(smoker_val == "yes")
     obese_smoker = is_obese * is_smoker
@@ -79,6 +85,16 @@ if st.button("보험료 예측하기"):
         "is_obese": [is_obese],
         "is_smoker": [is_smoker],
         "obese_smoker": [obese_smoker]
+    })
+
+    # 🔥 dtype 안정화 (추가)
+    input_df = input_df.astype({
+        "age": float,
+        "bmi": float,
+        "children": int,
+        "is_obese": int,
+        "is_smoker": int,
+        "obese_smoker": int
     })
 
     # 예측 (log -> 원래값)
