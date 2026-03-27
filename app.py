@@ -2,135 +2,136 @@ import streamlit as st
 import numpy as np
 import pandas as pd
 import joblib
+import time
 
-# 모델 불러오기
-model = joblib.load("model.pkl")
-
-st.title("💰 보험료 예측 서비스")
-st.info("📱 QR코드를 스캔해서 직접 입력해보세요!")
-
-st.write("아래 정보를 입력하면 예상 보험료를 알려드립니다.")
-
-# -------------------------
-# 입력 UI (한국어)
-# -------------------------
-
-age = st.number_input(
-    "나이",
-    min_value=18,
-    max_value=100,
-    value=None,
-    step=1
+# ---------------------------------------------------------
+# [1] 페이지 설정 및 테마 정의 (전문적인 분위기)
+# ---------------------------------------------------------
+st.set_page_config(
+    page_title="AI 건강 보험료 예측기",
+    page_icon="🩺",
+    layout="centered"
 )
 
-sex = st.radio("성별", ["여성","남성"])
+# 모델 불러오기 (캐싱 적용으로 속도 향상)
+@st.cache_resource
+def load_model():
+    # LightGBM과 XGBoost가 모두 필요한 스태킹 모델이므로 호환성 이슈 해결된 상태여야 함
+    return joblib.load("model.pkl")
 
-height = st.number_input(
-    "키 (cm)",
-    min_value=100.0,
-    max_value=220.0,
-    value=None,
-    step=1.0,
-    format="%.1f"
-)
+model = load_model()
 
-weight = st.number_input(
-    "몸무게 (kg)",
-    min_value=30.0,
-    max_value=200.0,
-    value=None,
-    step=1.0,
-    format="%.1f"
-)
-children = st.slider("자녀 수", 0, 5, 0)
+# ---------------------------------------------------------
+# [2] 메인 화면 디자인 (깔끔한 헤더와 안내)
+# ---------------------------------------------------------
+st.markdown("<h1 style='text-align: center; color: #2c3e50;'>🩺 스마트 AI 건강 보험료 예측 서비스</h1>", unsafe_allow_html=True)
+st.markdown("<p style='text-align: center; color: #7f8c8d; font-size: 1.2em;'>당신의 건강 지표를 분석하여 예상되는 미 보험료 수준을 알려드립니다.</p>", unsafe_allow_html=True)
+st.divider()
 
-smoker = st.radio("흡연 여부", ["아니오","예"])
+# ---------------------------------------------------------
+# [3] 입력 UI 디자인 (사이드바로 깔끔하게 정리)
+# ---------------------------------------------------------
+with st.sidebar:
+    st.header("📋 정보 입력")
+    st.write("당신의 신체 정보를 입력해 주세요.")
+    
+    age = st.number_input("나이 (세)", min_value=18, max_value=100, value=25, step=1)
+    sex = st.radio("성별", ["여성", "남성"], horizontal=True)
+    
+    st.divider()
+    
+    height = st.number_input("키 (cm)", min_value=100.0, max_value=220.0, value=170.0, step=0.1, format="%.1f")
+    weight = st.number_input("몸무게 (kg)", min_value=30.0, max_value=200.0, value=65.0, step=0.1, format="%.1f")
+    
+    st.divider()
+    
+    children = st.select_slider("자녀 수", options=[0, 1, 2, 3, 4, 5], value=0)
+    smoker = st.radio("흡연 여부", ["아니오", "예"], horizontal=True)
+    
+    st.info("💡 모든 정보를 입력한 후 '예측하기' 버튼을 눌러주세요.")
 
-# -------------------------
-# 퍼센타일 기준 (고정값)
-# -------------------------
+# 📱 QR 코드 안내 (B님의 기여 포인트)
+st.success("📱 발표 현장에서 이 QR코드를 스캔하여 모바일로 직접 체험해 보세요!")
+
+# ---------------------------------------------------------
+# [4] 예측 로직 및 결과 시각화
+# ---------------------------------------------------------
+# 퍼센타일 기준값 (발표용 고정값)
 q50 = 9382.033
-q80 = 20260.626406
+q80 = 20260.626
 
-# -------------------------
-# 버튼
-# -------------------------
+if st.button("🚀 당신의 건강 보험료 예측하기", use_container_width=True):
+    with st.spinner('AI가 데이터를 정밀 분석 중입니다...'):
+        time.sleep(1.5) # 분석 중인 듯한 애니메이션 효과
 
-if st.button("보험료 예측하기"):
+        # BMI 및 데이터 변환 (B님의 핵심 로직)
+        height_m = height / 100
+        bmi = weight / (height_m ** 2)
+        sex_num = 1.0 if sex == "남성" else 0.0
+        smoker_num = 1.0 if smoker == "예" else 0.0
+        is_obese = 1.0 if bmi >= 30 else 0.0
+        
+        # 모델 입력 데이터프레임 구성 (모두 숫자형으로!)
+        input_df = pd.DataFrame({
+            "age": [float(age)], "sex": [sex_num], "bmi": [float(bmi)],
+            "children": [float(children)], "smoker": [smoker_num],
+            "is_obese": [is_obese], "is_smoker": [smoker_num],
+            "obese_smoker": [float(is_obese * smoker_num)]
+        })
 
-    # 🔥 None 입력 방지 (추가)
-    if None in [age, height, weight]:
-        st.warning("모든 값을 입력해주세요!")
-        st.stop()
+        try:
+            # 예측 실행 (log -> 원래값)
+            pred_log = model.predict(input_df)[0]
+            pred = np.expm1(pred_log)
+            krw = pred * 1500 # 환율 적용 환산
 
-    # BMI 계산
-    height_m = height / 100
-    bmi = weight / (height_m ** 2)
+            # 결과 발표 대시보드 디자인
+            st.divider()
+            st.subheader("🔍 분석 리포트")
+            
+            # 지표 카드 디자인
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("예상 보험료(USD)", f"${pred:,.0f}")
+            with col2:
+                st.metric("예상 보험료(KRW)", f"₩{krw:,.0f}")
+            with col3:
+                st.metric("BMI 지수", f"{bmi:.1f}")
 
-    # 모델 입력값 맞추기
-    sex_val = "male" if sex == "남성" else "female"
-    smoker_val = "yes" if smoker == "예" else "no"
+            # 등급 분석 및 박스 디자인
+            if pred < q50:
+                grade, desc, color = "낮음", "의료비 지출이 적은 우수 관리 그룹입니다.", "#2ecc71" #🟢Green
+                st.balloons()
+            elif pred < q80:
+                grade, desc, color = "보통", "평균적인 의료비 지출 그룹입니다.", "#f39c12" #🟡Orange
+            else:
+                grade, desc, color = "높음", "상대적으로 높은 의료비 지출 그룹입니다. 건강 관리에 주의가 필요합니다.", "#e74c3c" #🔴Red
 
-    # 파생변수 (유지)
-    is_obese = int(bmi >= 30)
-    is_smoker = int(smoker_val == "yes")
-    obese_smoker = is_obese * is_smoker
+            # 컬러 박스로 등급 표시
+            st.markdown(f"""
+            <div style="background-color: {color}; padding: 20px; border-radius: 10px; color: white; margin-top: 20px;">
+                <h3 style="margin: 0; color: white;">🏆 의료비 수준 등급: {grade}</h3>
+                <p style="margin: 5px 0 0 0; font-size: 1.1em; color: white;">{desc}</p>
+            </div>
+            """, unsafe_allow_html=True)
 
-    input_df = pd.DataFrame({
-        "age": [age],
-        "sex": [sex_val],
-        "bmi": [bmi],
-        "children": [children],
-        "smoker": [smoker_val],
-        "is_obese": [is_obese],
-        "is_smoker": [is_smoker],
-        "obese_smoker": [obese_smoker]
-    })
+            # 퍼센타일 그래프 시각화 (Progress bar)
+            if pred < q50:
+                percentile = (pred / q50) * 50
+            elif pred < q80:
+                percentile = 50 + (pred - q50) / (q80 - q50) * 30
+            else:
+                percentile = 80 + (pred - q80) / q80 * 20
+                percentile = min(percentile, 99.9)
 
-    # 🔥 dtype 안정화 (추가)
-    input_df = input_df.astype({
-        "age": float,
-        "bmi": float,
-        "children": int,
-        "is_obese": int,
-        "is_smoker": int,
-        "obese_smoker": int
-    })
+            st.divider()
+            st.write(f"📊 당신은 전체 사용자 중 상위 **{100 - percentile:.1f}%** 수준의 의료비를 지출할 것으로 예상됩니다.")
+            st.progress(int(percentile))
+            st.caption("※ 본 예측 결과는 입력하신 신체 지표를 기반으로 한 AI 통계 모델의 결과이며, 실제 보험사의 가입 심사 결과와는 다를 수 있습니다.")
 
-    # 예측 (log -> 원래값)
-    pred_log = model.predict(input_df)[0]
-    pred = np.expm1(pred_log)
+        except Exception as e:
+            st.error(f"⚠️ 모델 계산 중 오류가 발생했습니다: {e}")
+            st.info("💡 로컬 환경의 라이브러리 버전을 확인해 보세요.")
 
-    # -------------------------
-    # 등급 (퍼센타일 기준)
-    # -------------------------
-    if pred < q50:
-        grade = "🟢 낮음"
-        desc = "의료비 지출이 적은 그룹입니다"
-    elif pred < q80:
-        grade = "🟡 보통"
-        desc = "평균적인 의료비 지출 그룹입니다."
-    else:
-        grade = "🔴 높음"
-        desc = "상대적으로 높은 의료비 지출 그룹입니다."
-
-    # -------------------------
-    # 퍼센타일 위치 계산 (근사)
-    # -------------------------
-    if pred < q50:
-        percentile = (pred / q50) * 50
-    elif pred < q80:
-        percentile = 50 + (pred - q50) / (q80 - q50) * 30
-    else:
-        percentile = 80 + (pred - q80) / q80 * 20
-        percentile = min(percentile, 99.9)
-
-    krw = pred * 1500
-
-    # -------------------------
-    # 결과 출력
-    # -------------------------
-    st.subheader(f"💰 예상 연간 미국 의료비: ${pred:,.0f} (약 ₩{krw:,.0f})")
-    st.subheader(f"🏆 의료비 수준 등급: {grade}")
-    st.write(desc)
-    st.write(f"📊 전체 사용자 중 약 상위 {100 - percentile:.1f}% 수준입니다.")
+st.divider()
+st.caption("© 2026 Team Insurance Prediction Project. All rights reserved.")
