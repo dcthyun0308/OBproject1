@@ -2,14 +2,6 @@ import streamlit as st
 import numpy as np
 import pandas as pd
 import joblib
-import sklearn
-
-# --- [에러 방어막: 이 부분이 없으면 서버에서 터집니다] ---
-from sklearn.impute import SimpleImputer
-# 최신 버전의 sklearn이 구버전 모델을 읽을 때 발생하는 속성 오류를 강제로 해결합니다.
-if not hasattr(SimpleImputer, "_fill_dtype"):
-    SimpleImputer._fill_dtype = property(lambda self: self.statistics_.dtype if hasattr(self, 'statistics_') else np.float64)
-# -------------------------------------------------------
 
 # 모델 불러오기
 model = joblib.load("model.pkl")
@@ -27,7 +19,7 @@ age = st.number_input(
     "나이",
     min_value=18,
     max_value=100,
-    value=25, # 에러 방지를 위해 기본값 설정
+    value=None,
     step=1
 )
 
@@ -37,7 +29,7 @@ height = st.number_input(
     "키 (cm)",
     min_value=100.0,
     max_value=220.0,
-    value=170.0,
+    value=None,
     step=1.0,
     format="%.1f"
 )
@@ -46,7 +38,7 @@ weight = st.number_input(
     "몸무게 (kg)",
     min_value=30.0,
     max_value=200.0,
-    value=65.0,
+    value=None,
     step=1.0,
     format="%.1f"
 )
@@ -70,8 +62,7 @@ if st.button("보험료 예측하기"):
     height_m = height / 100
     bmi = weight / (height_m ** 2)
 
-    # [중요] 모델이 숫자를 기다릴 경우를 대비한 안전 장치
-    # 만약 'could not convert string to float' 에러가 나면 아래 sex_val/smoker_val을 숫자로 바꿔야 합니다.
+    # 모델 입력값 맞추기
     sex_val = "male" if sex == "남성" else "female"
     smoker_val = "yes" if smoker == "예" else "no"
 
@@ -80,56 +71,50 @@ if st.button("보험료 예측하기"):
     obese_smoker = is_obese * is_smoker
 
     input_df = pd.DataFrame({
-        "age": [float(age)],
+        "age": [age],
         "sex": [sex_val],
-        "bmi": [float(bmi)],
-        "children": [float(children)],
+        "bmi": [bmi],
+        "children": [children],
         "smoker": [smoker_val],
-        "is_obese": [float(is_obese)],
-        "is_smoker": [float(is_smoker)],
-        "obese_smoker": [float(obese_smoker)]
+        "is_obese": [is_obese],
+        "is_smoker": [is_smoker],
+        "obese_smoker": [obese_smoker]
     })
 
-    try:
-        # 예측 (log -> 원래값)
-        pred_log = model.predict(input_df)[0]
-        pred = np.expm1(pred_log)
+    # 예측 (log -> 원래값)
+    pred_log = model.predict(input_df)[0]
+    pred = np.expm1(pred_log)
 
-        # -------------------------
-        # 등급 (퍼센타일 기준)
-        # -------------------------
-        if pred < q50:
-            grade = "🟢 낮음"
-            desc = "의료비 지출이 적은 그룹입니다"
-        elif pred < q80:
-            grade = "🟡 보통"
-            desc = "평균적인 의료비 지출 그룹입니다."
-        else:
-            grade = "🔴 높음"
-            desc = "상대적으로 높은 의료비 지출 그룹입니다."
+    # -------------------------
+    # 등급 (퍼센타일 기준)
+    # -------------------------
+    if pred < q50:
+        grade = "🟢 낮음"
+        desc = "의료비 지출이 적은 그룹입니다"
+    elif pred < q80:
+        grade = "🟡 보통"
+        desc = "평균적인 의료비 지출 그룹입니다."
+    else:
+        grade = "🔴 높음"
+        desc = "상대적으로 높은 의료비 지출 그룹입니다."
 
-        # -------------------------
-        # 퍼센타일 위치 계산 (근사)
-        # -------------------------
-        if pred < q50:
-            percentile = (pred / q50) * 50
-        elif pred < q80:
-            percentile = 50 + (pred - q50) / (q80 - q50) * 30
-        else:
-            percentile = 80 + (pred - q80) / q80 * 20
-            percentile = min(percentile, 99.9)
+    # -------------------------
+    # 퍼센타일 위치 계산 (근사)
+    # -------------------------
+    if pred < q50:
+        percentile = (pred / q50) * 50
+    elif pred < q80:
+        percentile = 50 + (pred - q50) / (q80 - q50) * 30
+    else:
+        percentile = 80 + (pred - q80) / q80 * 20
+        percentile = min(percentile, 99.9)
 
-        krw = pred * 1500
+    krw = pred * 1500
 
-        # -------------------------
-        # 결과 출력
-        # -------------------------
-        st.divider()
-        st.subheader(f"💰 예상 연간 미국 의료비: ${pred:,.0f} (약 ₩{krw:,.0f})")
-        st.subheader(f"🏆 의료비 수준 등급: {grade}")
-        st.write(desc)
-        st.write(f"📊 전체 사용자 중 약 상위 {100 - percentile:.1f}% 수준입니다.")
-        
-    except Exception as e:
-        st.error(f"계산 중 오류 발생: {e}")
-        st.info("💡 만약 'could not convert string to float' 에러가 뜬다면 말씀해주세요. 성별/흡연 데이터를 숫자로 바꿔야 합니다.")
+    # -------------------------
+    # 결과 출력
+    # -------------------------
+    st.subheader(f"💰 예상 연간 미국 의료비: ${pred:,.0f} (약 ₩{krw:,.0f})")
+    st.subheader(f"🏆 의료비 수준 등급: {grade}")
+    st.write(desc)
+    st.write(f"📊 전체 사용자 중 약 상위 {100 - percentile:.1f}% 수준입니다.")
