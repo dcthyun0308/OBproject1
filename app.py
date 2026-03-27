@@ -3,7 +3,13 @@ import numpy as np
 import pandas as pd
 import joblib
 import time
+from sklearn.impute import SimpleImputer  # 이 줄을 추가하세요
 
+
+if not hasattr(SimpleImputer, "_fill_dtype"):
+    def get_fill_dtype(self):
+        return self.statistics_.dtype if hasattr(self, 'statistics_') else np.float64
+    SimpleImputer._fill_dtype = property(get_fill_dtype)
 # ---------------------------------------------------------
 # [1] 페이지 설정 및 테마 정의 (전문적인 분위기)
 # ---------------------------------------------------------
